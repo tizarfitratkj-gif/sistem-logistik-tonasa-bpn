@@ -15,6 +15,7 @@ export default function AdminDashboard() {
   // State khusus Kantong
   const [merkKantong, setMerkKantong] = useState("Tonasa");
   const [ukuranKantong, setUkuranKantong] = useState("50 Kg");
+  const [kondisiKantong, setKondisiKantong] = useState("Normal"); // <--- STATE KONDISI BARU
   
   const [keterangan, setKeterangan] = useState("");
   
@@ -43,9 +44,10 @@ export default function AdminDashboard() {
     } else {
       dataInsert = {
         jenis_transaksi: jenisTransaksi,
-        merk: merkKantong,         // <--- DATA MERK DISIMPAN KE DATABASE
+        merk: merkKantong,
         ukuran_kantong: ukuranKantong,
         jumlah_lembar: parseInt(jumlah),
+        kondisi: jenisTransaksi === "Stok Keluar" ? kondisiKantong : "Normal", // <--- DATA KONDISI DISIMPAN
         keterangan: keterangan
       };
     }
@@ -72,6 +74,7 @@ export default function AdminDashboard() {
       });
       setJumlah(""); 
       setKeterangan("");
+      setKondisiKantong("Normal"); // Reset ke normal setelah input
     }
   };
 
@@ -175,6 +178,7 @@ export default function AdminDashboard() {
           </select>
         </div>
 
+        {/* INPUT FORM DYNAMIC GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           {tipeInput === "Semen" ? (
             <>
@@ -206,7 +210,6 @@ export default function AdminDashboard() {
             </>
           ) : (
             <>
-              {/* DROPDOWN MERK KANTONG BARU */}
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Merk Kantong *</label>
                 <select 
@@ -230,10 +233,25 @@ export default function AdminDashboard() {
                   <option value="40 Kg">Kantong 40 Kg</option>
                 </select>
               </div>
+
+              {/* DROPDOWN KONDISI KANTONG BARU (HANYA MUNCUL SAAT STOK KELUAR) */}
+              {jenisTransaksi === "Stok Keluar" && (
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-bold text-rose-700 mb-2">Kondisi Pengeluaran Kantong *</label>
+                  <select 
+                    className="w-full border border-rose-300 bg-rose-50 p-3.5 rounded-xl text-rose-800 font-bold focus:outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-900/10 transition-all cursor-pointer" 
+                    value={kondisiKantong} 
+                    onChange={(e) => setKondisiKantong(e.target.value)}
+                  >
+                    <option value="Normal">Normal (Disalurkan / Digunakan)</option>
+                    <option value="Pecah">Pecah / Rusak (Loss Material)</option>
+                  </select>
+                </div>
+              )}
             </>
           )}
 
-          <div className={(tipeInput === "Semen" && jenisTransaksi === "Stok Keluar") || tipeInput === "Kantong" ? "md:col-span-2" : ""}>
+          <div className={(tipeInput === "Semen" && jenisTransaksi === "Stok Keluar") ? "md:col-span-2" : "w-full"}>
             <label className="block text-sm font-bold text-slate-700 mb-2">
               {tipeInput === "Semen" ? "Jumlah (Ton) *" : "Jumlah (Lembar) *"}
             </label>
@@ -286,7 +304,7 @@ export default function AdminDashboard() {
         </button>
       </form>
 
-      {/* Bagian Reset Data ada di bawah sini */}
+      {/* Zona Pengaturan Sistem Tetap Ada di Bawah Sini */}
     </div>
   );
 }
