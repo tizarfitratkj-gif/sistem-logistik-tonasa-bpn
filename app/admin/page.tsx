@@ -7,8 +7,8 @@ import Swal from "sweetalert2";
 export default function AdminDashboard() {
   const [tipeInput, setTipeInput] = useState<"Semen" | "Kantong">("Semen");
   
-  const [jumlah, setJumlah] = useState(""); // Digunakan untuk Semen atau Kantong Normal
-  const [jumlahPecah, setJumlahPecah] = useState(""); // <--- State baru khusus jumlah kantong pecah
+  const [jumlah, setJumlah] = useState(""); // Untuk Semen (bisa koma) atau Kantong Normal
+  const [jumlahPecah, setJumlahPecah] = useState(""); // Khusus jumlah kantong pecah
   
   const [jenisTransaksi, setJenisTransaksi] = useState("Stok Masuk");
   const [jenisSemen, setJenisSemen] = useState("Semen Portland");
@@ -34,10 +34,26 @@ export default function AdminDashboard() {
         finalJenisSemen = `${jenisSemen} (${kemasanSemen})`;
       }
 
+      // KONVERSI TANDA KOMA (,) MENJADI TITIK (.) AGAR BISA DIBACA DATABASE FLOAT
+      const sanitizedJumlah = jumlah.replace(",", ".");
+      const jumlahTon = parseFloat(sanitizedJumlah);
+
+      // Validasi jika input bukan angka yang valid
+      if (isNaN(jumlahTon)) {
+        Swal.fire({
+          title: "Format Angka Salah",
+          text: "Mohon masukkan jumlah ton yang valid. Gunakan koma (,) atau titik (.) untuk desimal.",
+          icon: "warning",
+          confirmButtonColor: "#1A3A5C"
+        });
+        setIsLoading(false);
+        return;
+      }
+
       const dataInsert = { 
         jenis_transaksi: jenisTransaksi, 
         jenis_semen: finalJenisSemen, 
-        jumlah_ton: parseFloat(jumlah),
+        jumlah_ton: jumlahTon,
         keterangan: keterangan
       };
 
@@ -63,7 +79,6 @@ export default function AdminDashboard() {
 
         setIsLoading(true);
 
-        // Jika ada kantong normal yang disalurkan
         if (valNormal > 0) {
           records.push({
             jenis_transaksi: jenisTransaksi,
@@ -75,7 +90,6 @@ export default function AdminDashboard() {
           });
         }
 
-        // Jika ada kantong yang pecah/rusak
         if (valPecah > 0) {
           records.push({
             jenis_transaksi: jenisTransaksi,
@@ -87,7 +101,6 @@ export default function AdminDashboard() {
           });
         }
       } else {
-        // Untuk Stok Masuk atau Penyesuaian Sistem biasa
         const valJumlah = parseInt(jumlah) || 0;
         if (valJumlah <= 0) {
           Swal.fire({
@@ -110,13 +123,11 @@ export default function AdminDashboard() {
         });
       }
 
-      // Eksekusi insert array records ke Supabase sekaligus
       const { error } = await supabase.from("stock_kantong").insert(records);
       handleResponse(error);
     }
   };
 
-  // Helper untuk menangani notifikasi sukses/gagal
   const handleResponse = (error: any) => {
     setIsLoading(false);
     if (error) {
@@ -134,7 +145,7 @@ export default function AdminDashboard() {
         confirmButtonColor: "#1A3A5C"
       });
       setJumlah(""); 
-      setJumlahPecah(""); // Reset input pecah
+      setJumlahPecah(""); 
       setKeterangan("");
     }
   };
@@ -243,7 +254,7 @@ export default function AdminDashboard() {
 
               {jenisTransaksi === "Stok Keluar" && (
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Tipe Kemasan Pengeluaran *</label>
+                  <label className="block text-sm font-bold text-emerald-800 mb-2">Tipe Kemasan Pengeluaran *</label>
                   <select 
                     className="w-full border border-emerald-300 bg-emerald-50 p-3.5 rounded-xl text-emerald-800 font-bold focus:outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-900/10 transition-all cursor-pointer" 
                     value={kemasanSemen} 
@@ -255,13 +266,22 @@ export default function AdminDashboard() {
                 </div>
               )}
 
+              {/* INPUT JUMLAH TON DENGAN DUKUNGAN TANDA KOMA (,) */}
               <div className={jenisTransaksi === "Stok Keluar" ? "md:col-span-2" : "w-full"}>
                 <label className="block text-sm font-bold text-slate-700 mb-2">Jumlah (Ton) *</label>
                 <div className="relative">
                   <input 
-                    type="number" min="0" step="0.01"
+                    type="text" 
+                    inputMode="decimal" // Memunculkan keyboard angka desimal pada perangkat smartphone
                     className="w-full border border-slate-200 bg-slate-50 p-3.5 rounded-xl text-slate-800 font-bold focus:outline-none focus:border-[#2E6DA4] focus:ring-4 focus:ring-blue-900/5 transition-all" 
-                    value={jumlah} onChange={(e) => setJumlah(e.target.value)} placeholder="0" required 
+                    value={jumlah} 
+                    onChange={(e) => {
+                      // Filter agar admin hanya bisa mengetikkan angka, koma, atau titik
+                      const cleanVal = e.target.value.replace(/[^0-9.,]/g, "");
+                      setJumlah(cleanVal);
+                    }} 
+                    placeholder="0,00" 
+                    required 
                   />
                   <span className="absolute right-4 top-3.5 text-slate-400 font-bold">TON</span>
                 </div>
@@ -291,7 +311,6 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              {/* TAMPILAN DINAMIS JIKA STOK KELUAR: MENAMPILKAN DUA INPUT SEKALIGUS */}
               {jenisTransaksi === "Stok Keluar" ? (
                 <>
                   <div className="w-full">
