@@ -7,7 +7,6 @@ import {
   FileText, 
   Settings, 
   Activity, 
-  Box, 
   Package, 
   TrendingUp, 
   Layers 
@@ -19,60 +18,85 @@ export const dynamic = 'force-dynamic';
 export default function ManagerDashboard() {
   const router = useRouter();
   const [stockSemen, setStockSemen] = useState(0);
-  const [stockKantong, setStockKantong] = useState(0);
+  
+  // State baru: Mengganti angka tunggal menjadi objek kategori terpisah
+  const [stockKantong, setStockKantong] = useState({
+    tonasa50: 0,
+    tonasa40: 0,
+    gresik50: 0,
+    gresik40: 0
+  });
+  
   const [isLoading, setIsLoading] = useState(true);
 
-  // State untuk menyimpan konfigurasi batas minimum dari database
+  // Batas minimum konfigurasi sistem
   const [batasSemen, setBatasSemen] = useState(500);
   const [batasKantong, setBatasKantong] = useState(2000);
 
-  useEffect(() => {
-    const fetchAllStockAndSettings = async () => {
-      const [semenRes, kantongRes, batasRes] = await Promise.all([
-        supabase.from('stock_semen').select('*'),
-        supabase.from('stock_kantong').select('*'),
-        supabase.from('batas_minimum').select('*').eq('id', 1).single()
-      ]);
+  // Fungsi pengambilan data terpusat
+  const fetchAllStockAndSettings = async () => {
+    const [semenRes, kantongRes, batasRes] = await Promise.all([
+      supabase.from('stock_semen').select('*'),
+      supabase.from('stock_kantong').select('*'),
+      supabase.from('batas_minimum').select('*').eq('id', 1).single()
+    ]);
+    
+    if (batasRes.data && !batasRes.error) {
+      setBatasSemen(parseFloat(batasRes.data.min_semen_ton));
+      setBatasKantong(parseInt(batasRes.data.min_kantong_lembar));
+    }
+
+    // 1. Kalkulasi Stok Semen
+    if (semenRes.data) {
+      let totalSemen = 0;
+      semenRes.data.forEach((row) => {
+        if (row.jenis_transaksi === 'Stok Masuk') totalSemen += row.jumlah_ton;
+        else if (row.jenis_transaksi === 'Stok Keluar') totalSemen -= row.jumlah_ton;
+      });
+      setStockSemen(totalSemen);
+    }
+
+    // 2. Kalkulasi Stok Kantong Terpisah (Tonasa & Gresik / 40Kg & 50Kg)
+    if (kantongRes.data) {
+      let t50 = 0, t40 = 0, g50 = 0, g40 = 0;
       
-      if (batasRes.data && !batasRes.error) {
-        setBatasSemen(parseFloat(batasRes.data.min_semen_ton));
-        setBatasKantong(parseInt(batasRes.data.min_kantong_lembar));
-      }
+      kantongRes.data.forEach((row) => {
+        const jumlah = row.jumlah_lembar;
+        const multiplier = row.jenis_transaksi === 'Stok Masuk' ? 1 : -1;
 
-      if (semenRes.data) {
-        let totalSemen = 0;
-        semenRes.data.forEach((row) => {
-          if (row.jenis_transaksi === 'Stok Masuk') totalSemen += row.jumlah_ton;
-          else if (row.jenis_transaksi === 'Stok Keluar') totalSemen -= row.jumlah_ton;
-        });
-        setStockSemen(totalSemen);
-      }
+        if (row.merk === 'Tonasa') {
+          if (row.ukuran_kantong === '50 Kg') t50 += jumlah * multiplier;
+          else if (row.ukuran_kantong === '40 Kg') t40 += jumlah * multiplier;
+        } else if (row.merk === 'Gresik') {
+          if (row.ukuran_kantong === '50 Kg') g50 += jumlah * multiplier;
+          else if (row.ukuran_kantong === '40 Kg') g40 += jumlah * multiplier;
+        }
+      });
 
-      if (kantongRes.data) {
-        let totalKantong = 0;
-        kantongRes.data.forEach((row) => {
-          if (row.jenis_transaksi === 'Stok Masuk') totalKantong += row.jumlah_lembar;
-          else if (row.jenis_transaksi === 'Stok Keluar') totalKantong -= row.jumlah_lembar;
-        });
-        setStockKantong(totalKantong);
-      }
-      setIsLoading(false);
-    };
+      setStockKantong({
+        tonasa50: t50,
+        tonasa40: t40,
+        gresik50: g50,
+        gresik40: g40
+      });
+    }
+    setIsLoading(false);
+  };
 
+  useEffect(() => {
     fetchAllStockAndSettings();
 
+    // Menggunakan strategi pemicu ulang otomatis agar data realtime sinkron 100% saat terjadi perubahan/reset
     const channelSemen = supabase
       .channel('realtime-semen')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'stock_semen' }, (payload) => {
-          const newData = payload.new as any; 
-          setStockSemen((prev) => newData.jenis_transaksi === 'Stok Masuk' ? prev + newData.jumlah_ton : prev - newData.jumlah_ton);
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_semen' }, () => {
+          fetchAllStockAndSettings();
       }).subscribe();
 
     const channelKantong = supabase
       .channel('realtime-kantong')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'stock_kantong' }, (payload) => {
-          const newData = payload.new as any; 
-          setStockKantong((prev) => newData.jenis_transaksi === 'Stok Masuk' ? prev + newData.jumlah_lembar : prev - newData.jumlah_lembar);
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_kantong' }, () => {
+          fetchAllStockAndSettings();
       }).subscribe();
 
     return () => {
@@ -83,7 +107,10 @@ export default function ManagerDashboard() {
 
   // Logika Status Dinamis
   const statusSemen = stockSemen < batasSemen ? "Kritis" : stockSemen < (batasSemen * 1.5) ? "Waspada" : "Aman";
-  const statusKantong = stockKantong < batasKantong ? "Kritis" : stockKantong < (batasKantong * 1.5) ? "Waspada" : "Aman";
+  
+  const getStatusKantong = (jumlah: number) => {
+    return jumlah < batasKantong ? "Kritis" : jumlah < (batasKantong * 1.5) ? "Waspada" : "Aman";
+  };
 
   // Komponen Badge Status Modern
   const StatusBadge = ({ status }: { status: string }) => {
@@ -145,68 +172,125 @@ export default function ManagerDashboard() {
         </div>
       </header>
 
-      {/* Main Stats Grid */}
-      <main className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
+      {/* Main Stats Area */}
+      <main className="max-w-7xl mx-auto space-y-10">
         
-        {/* Card: Stock Semen */}
-        <div className="bg-white rounded-[2rem] border border-slate-100 p-8 shadow-xl shadow-slate-200/50 relative overflow-hidden group hover:border-blue-200 transition-colors">
-          <div className="absolute -top-6 -right-6 w-32 h-32 bg-blue-50/50 rounded-full blur-2xl group-hover:bg-blue-100/50 transition-colors"></div>
-          
-          <div className="flex justify-between items-center mb-8">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-blue-50 text-[#2E6DA4] rounded-2xl">
-                <Package size={24} />
-              </div>
-              <span className="text-lg font-bold text-slate-600 tracking-wide">STOCK SEMEN</span>
+        {/* BAGIAN 1: TOTAL STOK SEMEN */}
+        <section>
+          <h2 className="text-xl font-extrabold text-slate-700 mb-4 tracking-tight flex items-center gap-2">
+            <Package size={20} className="text-[#2E6DA4]" /> Komoditas Semen (Curah / Zak)
+          </h2>
+          <div className="bg-white rounded-[2rem] border border-slate-100 p-8 shadow-xl shadow-slate-200/40 relative overflow-hidden group hover:border-blue-200 transition-colors max-w-2xl">
+            <div className="absolute -top-6 -right-6 w-32 h-32 bg-blue-50/50 rounded-full blur-2xl group-hover:bg-blue-100/50 transition-colors"></div>
+            <div className="flex justify-between items-center mb-6">
+              <span className="text-sm font-black text-slate-400 tracking-wider uppercase">Volume Semen Berjalan</span>
+              <StatusBadge status={statusSemen} />
             </div>
-            <StatusBadge status={statusSemen} />
-          </div>
-
-          <div className="flex items-baseline gap-3 mb-8">
-            <h2 className="text-7xl font-black text-slate-800 tracking-tighter">
-              {isLoading ? "---" : stockSemen}
-            </h2>
-            <span className="text-2xl font-bold text-slate-400 uppercase">Ton</span>
-          </div>
-
-          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-            <span className="text-sm font-bold text-slate-500">Ambang Batas Kritis</span>
-            <span className="text-sm font-black text-slate-800">{batasSemen} Ton</span>
-          </div>
-        </div>
-
-        {/* Card: Stock Kantong */}
-        <div className="bg-white rounded-[2rem] border border-slate-100 p-8 shadow-xl shadow-slate-200/50 relative overflow-hidden group hover:border-rose-200 transition-colors">
-          <div className="absolute -top-6 -right-6 w-32 h-32 bg-rose-50/50 rounded-full blur-2xl group-hover:bg-rose-100/50 transition-colors"></div>
-          
-          <div className="flex justify-between items-center mb-8">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-rose-50 text-rose-500 rounded-2xl">
-                <Layers size={24} />
-              </div>
-              <span className="text-lg font-bold text-slate-600 tracking-wide">STOK KANTONG</span>
+            <div className="flex items-baseline gap-3 mb-6">
+              <h2 className="text-6xl font-black text-slate-800 tracking-tighter">
+                {isLoading ? "---" : stockSemen}
+              </h2>
+              <span className="text-xl font-bold text-slate-400 uppercase">Ton</span>
             </div>
-            <StatusBadge status={statusKantong} />
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 text-sm font-bold text-slate-500">
+              <span>Ambang Batas Minimum</span>
+              <span className="text-slate-800 font-black">{batasSemen} Ton</span>
+            </div>
           </div>
+        </section>
 
-          <div className="flex items-baseline gap-3 mb-8">
-            <h2 className="text-7xl font-black text-slate-800 tracking-tighter">
-              {isLoading ? "---" : stockKantong.toLocaleString()}
-            </h2>
-            <span className="text-2xl font-bold text-slate-400 uppercase">Lbr</span>
-          </div>
+        {/* BAGIAN 2: GRID STOK KANTONG YANG DIPISAH BERDASARKAN MERK & BERAT */}
+        <section>
+          <h2 className="text-xl font-extrabold text-slate-700 mb-4 tracking-tight flex items-center gap-2">
+            <Layers size={20} className="text-rose-500" /> Inventori Kantong Berdasarkan Merk & Ukuran
+          </h2>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            
+            {/* KELOMPOK: SEMEN TONASA */}
+            <div className="bg-slate-100/60 border border-slate-200 p-6 rounded-[2.5rem] space-y-6">
+              <div className="flex items-center gap-2 px-2">
+                <div className="w-3 h-6 bg-[#1A3A5C] rounded-full"></div>
+                <h3 className="text-lg font-black text-slate-800">Merek: Semen Tonasa</h3>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Tonasa 50 Kg */}
+                <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm relative group hover:border-blue-300 transition-colors">
+                  <div className="flex justify-between items-start mb-4">
+                    <span className="text-xs font-black bg-blue-50 text-blue-800 px-2.5 py-1 rounded-md">Ukuran 50 KG</span>
+                    <StatusBadge status={getStatusKantong(stockKantong.tonasa50)} />
+                  </div>
+                  <div className="text-4xl font-black text-slate-800 tracking-tight mb-4">
+                    {isLoading ? "---" : stockKantong.tonasa50.toLocaleString()} <span className="text-xs text-slate-400 font-bold">LBR</span>
+                  </div>
+                  <div className="text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-2 flex justify-between">
+                    <span>Min: {batasKantong.toLocaleString()} Lbr</span>
+                  </div>
+                </div>
 
-          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-            <span className="text-sm font-bold text-slate-500">Ambang Batas Kritis</span>
-            <span className="text-sm font-black text-slate-800">{batasKantong.toLocaleString()} Lbr</span>
+                {/* Tonasa 40 Kg */}
+                <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm relative group hover:border-blue-300 transition-colors">
+                  <div className="flex justify-between items-start mb-4">
+                    <span className="text-xs font-black bg-blue-50 text-blue-800 px-2.5 py-1 rounded-md">Ukuran 40 KG</span>
+                    <StatusBadge status={getStatusKantong(stockKantong.tonasa40)} />
+                  </div>
+                  <div className="text-4xl font-black text-slate-800 tracking-tight mb-4">
+                    {isLoading ? "---" : stockKantong.tonasa40.toLocaleString()} <span className="text-xs text-slate-400 font-bold">LBR</span>
+                  </div>
+                  <div className="text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-2 flex justify-between">
+                    <span>Min: {batasKantong.toLocaleString()} Lbr</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* KELOMPOK: SEMEN GRESIK */}
+            <div className="bg-slate-100/60 border border-slate-200 p-6 rounded-[2.5rem] space-y-6">
+              <div className="flex items-center gap-2 px-2">
+                <div className="w-3 h-6 bg-orange-500 rounded-full"></div>
+                <h3 className="text-lg font-black text-slate-800">Merek: Semen Gresik</h3>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Gresik 50 Kg */}
+                <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm relative group hover:border-orange-300 transition-colors">
+                  <div className="flex justify-between items-start mb-4">
+                    <span className="text-xs font-black bg-orange-50 text-orange-800 px-2.5 py-1 rounded-md">Ukuran 50 KG</span>
+                    <StatusBadge status={getStatusKantong(stockKantong.gresik50)} />
+                  </div>
+                  <div className="text-4xl font-black text-slate-800 tracking-tight mb-4">
+                    {isLoading ? "---" : stockKantong.gresik50.toLocaleString()} <span className="text-xs text-slate-400 font-bold">LBR</span>
+                  </div>
+                  <div className="text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-2 flex justify-between">
+                    <span>Min: {batasKantong.toLocaleString()} Lbr</span>
+                  </div>
+                </div>
+
+                {/* Gresik 40 Kg */}
+                <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm relative group hover:border-orange-300 transition-colors">
+                  <div className="flex justify-between items-start mb-4">
+                    <span className="text-xs font-black bg-orange-50 text-orange-800 px-2.5 py-1 rounded-md">Ukuran 40 KG</span>
+                    <StatusBadge status={getStatusKantong(stockKantong.gresik40)} />
+                  </div>
+                  <div className="text-4xl font-black text-slate-800 tracking-tight mb-4">
+                    {isLoading ? "---" : stockKantong.gresik40.toLocaleString()} <span className="text-xs text-slate-400 font-bold">LBR</span>
+                  </div>
+                  <div className="text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-2 flex justify-between">
+                    <span>Min: {batasKantong.toLocaleString()} Lbr</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
           </div>
-        </div>
+        </section>
 
       </main>
 
       {/* Footer Info */}
-      <footer className="max-w-7xl mx-auto mt-12 text-center text-slate-400 text-sm font-medium">
-        PP. Balikpapan Logistik Monitoring System © 2024
+      <footer className="max-w-7xl mx-auto mt-16 text-center text-slate-400 text-sm font-medium">
+        PP. Balikpapan Logistik Monitoring System © 2026
       </footer>
 
     </div>
