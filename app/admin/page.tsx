@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { ClipboardEdit, Package, Layers, Save, Trash2, AlertTriangle } from "lucide-react";
-import Swal from "sweetalert2"; // Import SweetAlert2
+import Swal from "sweetalert2";
 
 export default function AdminDashboard() {
   const [tipeInput, setTipeInput] = useState<"Semen" | "Kantong">("Semen");
@@ -11,7 +11,11 @@ export default function AdminDashboard() {
   const [jenisTransaksi, setJenisTransaksi] = useState("Stok Masuk");
   const [jenisSemen, setJenisSemen] = useState("Semen Portland");
   const [kemasanSemen, setKemasanSemen] = useState("Curah");
+  
+  // State khusus Kantong
+  const [merkKantong, setMerkKantong] = useState("Tonasa");
   const [ukuranKantong, setUkuranKantong] = useState("50 Kg");
+  
   const [keterangan, setKeterangan] = useState("");
   
   const [isLoading, setIsLoading] = useState(false);
@@ -39,6 +43,7 @@ export default function AdminDashboard() {
     } else {
       dataInsert = {
         jenis_transaksi: jenisTransaksi,
+        merk: merkKantong,         // <--- DATA MERK DISIMPAN KE DATABASE
         ukuran_kantong: ukuranKantong,
         jumlah_lembar: parseInt(jumlah),
         keterangan: keterangan
@@ -50,7 +55,6 @@ export default function AdminDashboard() {
     setIsLoading(false);
 
     if (error) {
-      // Pop-up Error Modern
       Swal.fire({
         title: "Gagal Menyimpan!",
         text: error.message,
@@ -59,7 +63,6 @@ export default function AdminDashboard() {
         confirmButtonText: "Tutup"
       });
     } else {
-      // Pop-up Sukses Modern
       Swal.fire({
         title: "Tersimpan!",
         text: `Data logistik ${tipeInput} berhasil ditambahkan ke database.`,
@@ -73,20 +76,18 @@ export default function AdminDashboard() {
   };
 
   const handleResetData = async () => {
-    // Pop-up Konfirmasi Ganda Modern
     const result = await Swal.fire({
       title: "Peringatan Kritis!",
       text: "Anda yakin ingin MENGHAPUS SEMUA DATA riwayat stok Semen dan Kantong? Tindakan ini permanen!",
       icon: "warning",
       showCancelButton: true,
-      confirmButtonColor: "#E74C3C", // Warna merah danger
-      cancelButtonColor: "#64748B",  // Warna abu-abu netral
+      confirmButtonColor: "#E74C3C",
+      cancelButtonColor: "#64748B",
       confirmButtonText: "Ya, Hapus Semua Data!",
       cancelButtonText: "Batal",
-      reverseButtons: true // Menaruh tombol batal di sebelah kanan
+      reverseButtons: true
     });
 
-    // Jika user mengklik "Batal" atau menutup pop-up
     if (!result.isConfirmed) return;
 
     setIsResetting(true);
@@ -98,7 +99,6 @@ export default function AdminDashboard() {
       if (resSemen.error) throw resSemen.error;
       if (resKantong.error) throw resKantong.error;
 
-      // Pop-up Sukses Reset
       await Swal.fire({
         title: "Data Dihapus!",
         text: "Seluruh data riwayat stok telah dibersihkan dari sistem.",
@@ -205,20 +205,35 @@ export default function AdminDashboard() {
               )}
             </>
           ) : (
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">Ukuran Kantong *</label>
-              <select 
-                className="w-full border border-slate-200 bg-slate-50 p-3.5 rounded-xl text-slate-700 font-medium focus:outline-none focus:border-[#2E6DA4] focus:ring-4 focus:ring-blue-900/5 transition-all cursor-pointer" 
-                value={ukuranKantong} 
-                onChange={(e) => setUkuranKantong(e.target.value)}
-              >
-                <option value="50 Kg">Kantong 50 Kg</option>
-                <option value="40 Kg">Kantong 40 Kg</option>
-              </select>
-            </div>
+            <>
+              {/* DROPDOWN MERK KANTONG BARU */}
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Merk Kantong *</label>
+                <select 
+                  className="w-full border border-slate-200 bg-slate-50 p-3.5 rounded-xl text-slate-700 font-medium focus:outline-none focus:border-[#2E6DA4] focus:ring-4 focus:ring-blue-900/5 transition-all cursor-pointer" 
+                  value={merkKantong} 
+                  onChange={(e) => setMerkKantong(e.target.value)}
+                >
+                  <option value="Tonasa">Semen Tonasa</option>
+                  <option value="Gresik">Semen Gresik</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Ukuran Kantong *</label>
+                <select 
+                  className="w-full border border-slate-200 bg-slate-50 p-3.5 rounded-xl text-slate-700 font-medium focus:outline-none focus:border-[#2E6DA4] focus:ring-4 focus:ring-blue-900/5 transition-all cursor-pointer" 
+                  value={ukuranKantong} 
+                  onChange={(e) => setUkuranKantong(e.target.value)}
+                >
+                  <option value="50 Kg">Kantong 50 Kg</option>
+                  <option value="40 Kg">Kantong 40 Kg</option>
+                </select>
+              </div>
+            </>
           )}
 
-          <div className={tipeInput === "Semen" && jenisTransaksi === "Stok Keluar" ? "md:col-span-2" : ""}>
+          <div className={(tipeInput === "Semen" && jenisTransaksi === "Stok Keluar") || tipeInput === "Kantong" ? "md:col-span-2" : ""}>
             <label className="block text-sm font-bold text-slate-700 mb-2">
               {tipeInput === "Semen" ? "Jumlah (Ton) *" : "Jumlah (Lembar) *"}
             </label>
@@ -271,33 +286,7 @@ export default function AdminDashboard() {
         </button>
       </form>
 
-      <div className="max-w-2xl mx-auto bg-rose-50 border border-rose-200 p-6 rounded-[1.5rem] shadow-sm">
-        <div className="flex items-start gap-4">
-          <div className="p-3 bg-rose-100 text-rose-600 rounded-xl shrink-0">
-            <AlertTriangle size={24} />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-lg font-black text-rose-800 mb-1">Zona Pengaturan Sistem</h3>
-            <p className="text-sm text-rose-600/80 mb-4 font-medium leading-relaxed">
-              Tindakan di bawah ini akan menghapus <b>seluruh</b> riwayat transaksi stok Semen dan Kantong dari *database*. Gunakan fitur ini hanya saat membersihkan data uji coba (*testing*).
-            </p>
-            <button 
-              type="button"
-              onClick={handleResetData}
-              disabled={isResetting}
-              className={`font-bold py-3 px-5 rounded-xl text-sm flex items-center justify-center gap-2 transition-all duration-300 ${
-                isResetting 
-                  ? "bg-rose-200 text-rose-400 cursor-not-allowed" 
-                  : "bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-900/20 hover:-translate-y-0.5 active:scale-95"
-              }`}
-            >
-              <Trash2 size={16} />
-              {isResetting ? "Membersihkan Data..." : "Format & Kosongkan Semua Data"}
-            </button>
-          </div>
-        </div>
-      </div>
-
+      {/* Bagian Reset Data ada di bawah sini */}
     </div>
   );
 }
