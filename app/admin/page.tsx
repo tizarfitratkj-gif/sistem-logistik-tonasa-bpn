@@ -7,7 +7,9 @@ import Swal from "sweetalert2";
 export default function AdminDashboard() {
   const [tipeInput, setTipeInput] = useState<"Semen" | "Kantong">("Semen");
   
-  const [jumlah, setJumlah] = useState("");
+  const [jumlah, setJumlah] = useState(""); // Digunakan untuk Semen atau Kantong Normal
+  const [jumlahPecah, setJumlahPecah] = useState(""); // <--- State baru khusus jumlah kantong pecah
+  
   const [jenisTransaksi, setJenisTransaksi] = useState("Stok Masuk");
   const [jenisSemen, setJenisSemen] = useState("Semen Portland");
   const [kemasanSemen, setKemasanSemen] = useState("Curah");
@@ -15,7 +17,6 @@ export default function AdminDashboard() {
   // State khusus Kantong
   const [merkKantong, setMerkKantong] = useState("Tonasa");
   const [ukuranKantong, setUkuranKantong] = useState("50 Kg");
-  const [kondisiKantong, setKondisiKantong] = useState("Normal"); // <--- STATE KONDISI BARU
   
   const [keterangan, setKeterangan] = useState("");
   
@@ -24,64 +25,124 @@ export default function AdminDashboard() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-
-    let table = tipeInput === "Semen" ? "stock_semen" : "stock_kantong";
-    let dataInsert = {};
+    setIsLoading(false);
 
     if (tipeInput === "Semen") {
+      setIsLoading(true);
       let finalJenisSemen = jenisSemen;
       if (jenisTransaksi === "Stok Keluar") {
         finalJenisSemen = `${jenisSemen} (${kemasanSemen})`;
       }
 
-      dataInsert = { 
+      const dataInsert = { 
         jenis_transaksi: jenisTransaksi, 
         jenis_semen: finalJenisSemen, 
         jumlah_ton: parseFloat(jumlah),
         keterangan: keterangan
       };
+
+      const { error } = await supabase.from("stock_semen").insert([dataInsert]);
+      handleResponse(error);
     } else {
-      dataInsert = {
-        jenis_transaksi: jenisTransaksi,
-        merk: merkKantong,
-        ukuran_kantong: ukuranKantong,
-        jumlah_lembar: parseInt(jumlah),
-        kondisi: jenisTransaksi === "Stok Keluar" ? kondisiKantong : "Normal", // <--- DATA KONDISI DISIMPAN
-        keterangan: keterangan
-      };
+      // LOGIKA KANTONG GABUNGAN (NORMAL + PECAH)
+      const records = [];
+      
+      if (jenisTransaksi === "Stok Keluar") {
+        const valNormal = parseInt(jumlah) || 0;
+        const valPecah = parseInt(jumlahPecah) || 0;
+
+        if (valNormal === 0 && valPecah === 0) {
+          Swal.fire({
+            title: "Input Kosong",
+            text: "Mohon isi jumlah kantong normal atau kantong pecah terlebih dahulu.",
+            icon: "warning",
+            confirmButtonColor: "#1A3A5C"
+          });
+          return;
+        }
+
+        setIsLoading(true);
+
+        // Jika ada kantong normal yang disalurkan
+        if (valNormal > 0) {
+          records.push({
+            jenis_transaksi: jenisTransaksi,
+            merk: merkKantong,
+            ukuran_kantong: ukuranKantong,
+            jumlah_lembar: valNormal,
+            kondisi: "Normal",
+            keterangan: keterangan
+          });
+        }
+
+        // Jika ada kantong yang pecah/rusak
+        if (valPecah > 0) {
+          records.push({
+            jenis_transaksi: jenisTransaksi,
+            merk: merkKantong,
+            ukuran_kantong: ukuranKantong,
+            jumlah_lembar: valPecah,
+            kondisi: "Pecah",
+            keterangan: keterangan ? `${keterangan} (Kondisi: Kantong Pecah)` : "Kantong Pecah / Rusak"
+          });
+        }
+      } else {
+        // Untuk Stok Masuk atau Penyesuaian Sistem biasa
+        const valJumlah = parseInt(jumlah) || 0;
+        if (valJumlah <= 0) {
+          Swal.fire({
+            title: "Input Kosong",
+            text: "Jumlah lembar harus lebih dari 0.",
+            icon: "warning",
+            confirmButtonColor: "#1A3A5C"
+          });
+          return;
+        }
+
+        setIsLoading(true);
+        records.push({
+          jenis_transaksi: jenisTransaksi,
+          merk: merkKantong,
+          ukuran_kantong: ukuranKantong,
+          jumlah_lembar: valJumlah,
+          kondisi: "Normal",
+          keterangan: keterangan
+        });
+      }
+
+      // Eksekusi insert array records ke Supabase sekaligus
+      const { error } = await supabase.from("stock_kantong").insert(records);
+      handleResponse(error);
     }
+  };
 
-    const { error } = await supabase.from(table).insert([dataInsert]);
-
+  // Helper untuk menangani notifikasi sukses/gagal
+  const handleResponse = (error: any) => {
     setIsLoading(false);
-
     if (error) {
       Swal.fire({
         title: "Gagal Menyimpan!",
         text: error.message,
         icon: "error",
-        confirmButtonColor: "#E74C3C",
-        confirmButtonText: "Tutup"
+        confirmButtonColor: "#E74C3C"
       });
     } else {
       Swal.fire({
         title: "Tersimpan!",
-        text: `Data logistik ${tipeInput} berhasil ditambahkan ke database.`,
+        text: `Data logistik ${tipeInput} berhasil diperbarui di database.`,
         icon: "success",
-        confirmButtonColor: "#1A3A5C",
-        confirmButtonText: "Selesai"
+        confirmButtonColor: "#1A3A5C"
       });
       setJumlah(""); 
+      setJumlahPecah(""); // Reset input pecah
       setKeterangan("");
-      setKondisiKantong("Normal"); // Reset ke normal setelah input
     }
   };
 
   const handleResetData = async () => {
     const result = await Swal.fire({
       title: "Peringatan Kritis!",
-      text: "Anda yakin ingin MENGHAPUS SEMUA DATA riwayat stok Semen dan Kantong? Tindakan ini permanen!",
+      text: "Anda yakin ingin MENGHAPUS SEMUA DATA riwayat stok? Tindakan ini permanen!",
       icon: "warning",
       showCancelButton: true,
       confirmButtonColor: "#E74C3C",
@@ -92,7 +153,6 @@ export default function AdminDashboard() {
     });
 
     if (!result.isConfirmed) return;
-
     setIsResetting(true);
 
     try {
@@ -104,19 +164,13 @@ export default function AdminDashboard() {
 
       await Swal.fire({
         title: "Data Dihapus!",
-        text: "Seluruh data riwayat stok telah dibersihkan dari sistem.",
+        text: "Seluruh data riwayat stok telah dibersihkan.",
         icon: "success",
         confirmButtonColor: "#1A3A5C"
       });
-      
       window.location.href = "/manager";
     } catch (error: any) {
-      Swal.fire({
-        title: "Terjadi Kesalahan",
-        text: error.message,
-        icon: "error",
-        confirmButtonColor: "#E74C3C"
-      });
+      Swal.fire({ title: "Terjadi Kesalahan", text: error.message, icon: "error" });
     } finally {
       setIsResetting(false);
     }
@@ -140,25 +194,19 @@ export default function AdminDashboard() {
           type="button"
           onClick={() => setTipeInput("Semen")}
           className={`flex-1 py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all duration-300 ${
-            tipeInput === "Semen" 
-              ? "bg-white text-[#1A3A5C] shadow-sm border border-slate-200/50" 
-              : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+            tipeInput === "Semen" ? "bg-white text-[#1A3A5C] shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
           }`}
         >
-          <Package size={18} />
-          Input Semen
+          <Package size={18} /> Input Semen
         </button>
         <button 
           type="button"
           onClick={() => setTipeInput("Kantong")}
           className={`flex-1 py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all duration-300 ${
-            tipeInput === "Kantong" 
-              ? "bg-white text-[#1A3A5C] shadow-sm border border-slate-200/50" 
-              : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+            tipeInput === "Kantong" ? "bg-white text-[#1A3A5C] shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
           }`}
         >
-          <Layers size={18} />
-          Input Kantong
+          <Layers size={18} /> Input Kantong
         </button>
       </div>
 
@@ -178,7 +226,6 @@ export default function AdminDashboard() {
           </select>
         </div>
 
-        {/* INPUT FORM DYNAMIC GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           {tipeInput === "Semen" ? (
             <>
@@ -207,6 +254,18 @@ export default function AdminDashboard() {
                   </select>
                 </div>
               )}
+
+              <div className={jenisTransaksi === "Stok Keluar" ? "md:col-span-2" : "w-full"}>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Jumlah (Ton) *</label>
+                <div className="relative">
+                  <input 
+                    type="number" min="0" step="0.01"
+                    className="w-full border border-slate-200 bg-slate-50 p-3.5 rounded-xl text-slate-800 font-bold focus:outline-none focus:border-[#2E6DA4] focus:ring-4 focus:ring-blue-900/5 transition-all" 
+                    value={jumlah} onChange={(e) => setJumlah(e.target.value)} placeholder="0" required 
+                  />
+                  <span className="absolute right-4 top-3.5 text-slate-400 font-bold">TON</span>
+                </div>
+              </div>
             </>
           ) : (
             <>
@@ -214,8 +273,7 @@ export default function AdminDashboard() {
                 <label className="block text-sm font-bold text-slate-700 mb-2">Merk Kantong *</label>
                 <select 
                   className="w-full border border-slate-200 bg-slate-50 p-3.5 rounded-xl text-slate-700 font-medium focus:outline-none focus:border-[#2E6DA4] focus:ring-4 focus:ring-blue-900/5 transition-all cursor-pointer" 
-                  value={merkKantong} 
-                  onChange={(e) => setMerkKantong(e.target.value)}
+                  value={merkKantong} onChange={(e) => setMerkKantong(e.target.value)}
                 >
                   <option value="Tonasa">Semen Tonasa</option>
                   <option value="Gresik">Semen Gresik</option>
@@ -226,85 +284,96 @@ export default function AdminDashboard() {
                 <label className="block text-sm font-bold text-slate-700 mb-2">Ukuran Kantong *</label>
                 <select 
                   className="w-full border border-slate-200 bg-slate-50 p-3.5 rounded-xl text-slate-700 font-medium focus:outline-none focus:border-[#2E6DA4] focus:ring-4 focus:ring-blue-900/5 transition-all cursor-pointer" 
-                  value={ukuranKantong} 
-                  onChange={(e) => setUkuranKantong(e.target.value)}
+                  value={ukuranKantong} onChange={(e) => setUkuranKantong(e.target.value)}
                 >
                   <option value="50 Kg">Kantong 50 Kg</option>
                   <option value="40 Kg">Kantong 40 Kg</option>
                 </select>
               </div>
 
-              {/* DROPDOWN KONDISI KANTONG BARU (HANYA MUNCUL SAAT STOK KELUAR) */}
-              {jenisTransaksi === "Stok Keluar" && (
+              {/* TAMPILAN DINAMIS JIKA STOK KELUAR: MENAMPILKAN DUA INPUT SEKALIGUS */}
+              {jenisTransaksi === "Stok Keluar" ? (
+                <>
+                  <div className="w-full">
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Jumlah Kantong Normal *</label>
+                    <div className="relative">
+                      <input 
+                        type="number" min="0" step="1"
+                        className="w-full border border-slate-200 bg-slate-50 p-3.5 rounded-xl text-slate-800 font-bold focus:outline-none focus:border-[#2E6DA4] focus:ring-4 focus:ring-blue-900/5 transition-all" 
+                        value={jumlah} onChange={(e) => setJumlah(e.target.value)} placeholder="0"
+                      />
+                      <span className="absolute right-4 top-3.5 text-slate-400 font-bold">LBR</span>
+                    </div>
+                  </div>
+
+                  <div className="w-full">
+                    <label className="block text-sm font-bold text-rose-600 mb-2">Jumlah Kantong Pecah / Rusak</label>
+                    <div className="relative">
+                      <input 
+                        type="number" min="0" step="1"
+                        className="w-full border border-rose-200 bg-rose-50/50 p-3.5 rounded-xl text-rose-700 font-bold focus:outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-900/5 transition-all" 
+                        value={jumlahPecah} onChange={(e) => setJumlahPecah(e.target.value)} placeholder="0"
+                      />
+                      <span className="absolute right-4 top-3.5 text-rose-400 font-bold">LBR</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-bold text-rose-700 mb-2">Kondisi Pengeluaran Kantong *</label>
-                  <select 
-                    className="w-full border border-rose-300 bg-rose-50 p-3.5 rounded-xl text-rose-800 font-bold focus:outline-none focus:border-rose-500 focus:ring-4 focus:ring-rose-900/10 transition-all cursor-pointer" 
-                    value={kondisiKantong} 
-                    onChange={(e) => setKondisiKantong(e.target.value)}
-                  >
-                    <option value="Normal">Normal (Disalurkan / Digunakan)</option>
-                    <option value="Pecah">Pecah / Rusak (Loss Material)</option>
-                  </select>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Jumlah (Lembar) *</label>
+                  <div className="relative">
+                    <input 
+                      type="number" min="0" step="1"
+                      className="w-full border border-slate-200 bg-slate-50 p-3.5 rounded-xl text-slate-800 font-bold focus:outline-none focus:border-[#2E6DA4] focus:ring-4 focus:ring-blue-900/5 transition-all" 
+                      value={jumlah} onChange={(e) => setJumlah(e.target.value)} placeholder="0" required 
+                    />
+                    <span className="absolute right-4 top-3.5 text-slate-400 font-bold">LBR</span>
+                  </div>
                 </div>
               )}
             </>
           )}
-
-          <div className={(tipeInput === "Semen" && jenisTransaksi === "Stok Keluar") ? "md:col-span-2" : "w-full"}>
-            <label className="block text-sm font-bold text-slate-700 mb-2">
-              {tipeInput === "Semen" ? "Jumlah (Ton) *" : "Jumlah (Lembar) *"}
-            </label>
-            <div className="relative">
-              <input 
-                type="number" 
-                min="0" 
-                step={tipeInput === "Semen" ? "0.01" : "1"}
-                className="w-full border border-slate-200 bg-slate-50 p-3.5 rounded-xl text-slate-800 font-bold focus:outline-none focus:border-[#2E6DA4] focus:ring-4 focus:ring-blue-900/5 transition-all" 
-                value={jumlah}
-                onChange={(e) => setJumlah(e.target.value)}
-                placeholder="0"
-                required 
-              />
-              <span className="absolute right-4 top-3.5 text-slate-400 font-bold">
-                {tipeInput === "Semen" ? "TON" : "LBR"}
-              </span>
-            </div>
-          </div>
         </div>
 
         <div className="mb-8">
           <label className="block text-sm font-bold text-slate-700 mb-2">Keterangan Tambahan (Opsional)</label>
           <textarea 
             className="w-full border border-slate-200 bg-slate-50 p-4 rounded-xl text-slate-700 focus:outline-none focus:border-[#2E6DA4] focus:ring-4 focus:ring-blue-900/5 transition-all resize-none" 
-            rows={3}
-            placeholder="Tuliskan plat nomor truk, nama kurir, atau catatan khusus di sini..."
-            value={keterangan}
-            onChange={(e) => setKeterangan(e.target.value)}
+            rows={3} placeholder="Tuliskan plat nomor truk, nama kurir, atau catatan khusus di sini..."
+            value={keterangan} onChange={(e) => setKeterangan(e.target.value)}
           ></textarea>
         </div>
 
         <button 
-          type="submit" 
-          disabled={isLoading}
+          type="submit" disabled={isLoading}
           className={`w-full text-white font-bold py-4 px-6 rounded-xl text-lg flex items-center justify-center gap-2 shadow-lg transition-all duration-300 ${
-            isLoading 
-              ? "bg-slate-400 cursor-not-allowed shadow-none" 
-              : "bg-[#1A3A5C] hover:bg-[#122841] shadow-blue-900/20 hover:-translate-y-0.5 active:scale-95"
+            isLoading ? "bg-slate-400 cursor-not-allowed shadow-none" : "bg-[#1A3A5C] hover:bg-[#122841] shadow-blue-900/20 hover:-translate-y-0.5 active:scale-95"
           }`}
         >
-          {isLoading ? (
-            "Menyimpan ke Database..."
-          ) : (
-            <>
-              <Save size={20} />
-              Simpan Data {tipeInput}
-            </>
-          )}
+          {isLoading ? "Menyimpan ke Database..." : <><Save size={20} /> Simpan Data {tipeInput}</>}
         </button>
       </form>
 
-      {/* Zona Pengaturan Sistem Tetap Ada di Bawah Sini */}
+      <div className="max-w-2xl mx-auto bg-rose-50 border border-rose-200 p-6 rounded-[1.5rem] shadow-sm">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-rose-100 text-rose-600 rounded-xl shrink-0"><AlertTriangle size={24} /></div>
+          <div className="flex-1">
+            <h3 className="text-lg font-black text-rose-800 mb-1">Zona Pengaturan Sistem</h3>
+            <p className="text-sm text-rose-600/80 mb-4 font-medium leading-relaxed">
+              Tindakan di bawah ini akan menghapus <b>seluruh</b> riwayat transaksi stok Semen dan Kantong dari *database*. Gunakan fitur ini hanya saat membersihkan data uji coba (*testing*).
+            </p>
+            <button 
+              type="button" onClick={handleResetData} disabled={isResetting}
+              className={`font-bold py-3 px-5 rounded-xl text-sm flex items-center justify-center gap-2 transition-all duration-300 ${
+                isResetting ? "bg-rose-200 text-rose-400 cursor-not-allowed" : "bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-900/20 hover:-translate-y-0.5 active:scale-95"
+              }`}
+            >
+              <Trash2 size={16} /> {isResetting ? "Membersihkan Data..." : "Format & Kosongkan Semua Data"}
+            </button>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }
