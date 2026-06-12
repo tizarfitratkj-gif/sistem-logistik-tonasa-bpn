@@ -27,12 +27,20 @@ export default function AdminDashboard() {
   const [riwayatSemen, setRiwayatSemen] = useState<any[]>([]);
   const [riwayatKantong, setRiwayatKantong] = useState<any[]>([]);
 
-  // Fungsi untuk mengambil data riwayat input terbaru (5 data terakhir)
+  // Fungsi pengambilan riwayat yang diperbarui dengan pelacak error & kolom waktu
   const fetchRiwayatTerakhir = async () => {
     const [semenRes, kantongRes] = await Promise.all([
-      supabase.from("stock_semen").select("*").order("id", { ascending: false }).limit(5),
-      supabase.from("stock_kantong").select("*").order("id", { ascending: false }).limit(5)
+      supabase.from("stock_semen").select("*").order("created_at", { ascending: false }).limit(5),
+      supabase.from("stock_kantong").select("*").order("created_at", { ascending: false }).limit(5)
     ]);
+
+    // Jika terjadi error, sistem akan mencatatnya di Console Browser Anda
+    if (semenRes.error) {
+      console.error("Gagal memuat riwayat semen:", semenRes.error.message);
+    }
+    if (kantongRes.error) {
+      console.error("Gagal memuat riwayat kantong:", kantongRes.error.message);
+    }
 
     if (semenRes.data) setRiwayatSemen(semenRes.data);
     if (kantongRes.data) setRiwayatKantong(kantongRes.data);
