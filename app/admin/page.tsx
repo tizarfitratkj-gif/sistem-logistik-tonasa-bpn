@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { ClipboardEdit, Package, Layers, Save, Trash2, AlertTriangle, Calendar, Clock } from "lucide-react";
+import { ClipboardEdit, Package, Layers, Save, Trash2, AlertTriangle, Clock } from "lucide-react";
 import Swal from "sweetalert2";
 
 export default function AdminDashboard() {
@@ -14,7 +14,7 @@ export default function AdminDashboard() {
   const [jenisSemen, setJenisSemen] = useState("Semen Portland");
   const [kemasanSemen, setKemasanSemen] = useState("Curah");
   
-  // State Kantong
+  // State khusus Kantong
   const [merkKantong, setMerkKantong] = useState("Tonasa");
   const [ukuranKantong, setUkuranKantong] = useState("50 Kg");
   
@@ -23,30 +23,39 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
 
-  // State baru untuk menyimpan riwayat input terbaru
+  // State riwayat
   const [riwayatSemen, setRiwayatSemen] = useState<any[]>([]);
   const [riwayatKantong, setRiwayatKantong] = useState<any[]>([]);
 
-  // Fungsi pengambilan riwayat yang diperbarui dengan pelacak error & kolom waktu
+  // Fungsi pengambilan data riwayat yang dipisah secara independen
   const fetchRiwayatTerakhir = async () => {
-    const [semenRes, kantongRes] = await Promise.all([
-      supabase.from("stock_semen").select("*").order("created_at", { ascending: false }).limit(5),
-      supabase.from("stock_kantong").select("*").order("created_at", { ascending: false }).limit(5)
-    ]);
+    // 1. Ambil data Semen
+    const { data: semenData, error: semenError } = await supabase
+      .from("stock_semen")
+      .select("*")
+      .order("id", { ascending: false })
+      .limit(5);
 
-    // Jika terjadi error, sistem akan mencatatnya di Console Browser Anda
-    if (semenRes.error) {
-      console.error("Gagal memuat riwayat semen:", semenRes.error.message);
-    }
-    if (kantongRes.error) {
-      console.error("Gagal memuat riwayat kantong:", kantongRes.error.message);
+    if (semenError) {
+      console.error("Error memuat riwayat semen:", semenError.message);
+    } else if (semenData) {
+      setRiwayatSemen(semenData);
     }
 
-    if (semenRes.data) setRiwayatSemen(semenRes.data);
-    if (kantongRes.data) setRiwayatKantong(kantongRes.data);
+    // 2. Ambil data Kantong
+    const { data: kantongData, error: kantongError } = await supabase
+      .from("stock_kantong")
+      .select("*")
+      .order("id", { ascending: false })
+      .limit(5);
+
+    if (kantongError) {
+      console.error("Error memuat riwayat kantong:", kantongError.message);
+    } else if (kantongData) {
+      setRiwayatKantong(kantongData);
+    }
   };
 
-  // Ambil riwayat saat halaman pertama kali dimuat
   useEffect(() => {
     fetchRiwayatTerakhir();
   }, []);
@@ -62,6 +71,7 @@ export default function AdminDashboard() {
         finalJenisSemen = `${jenisSemen} (${kemasanSemen})`;
       }
 
+      // Konversi koma ke titik untuk membaca desimal
       const sanitizedJumlah = jumlah.replace(",", ".");
       const jumlahTon = parseFloat(sanitizedJumlah);
 
@@ -172,17 +182,16 @@ export default function AdminDashboard() {
       setJumlah(""); 
       setJumlahPecah(""); 
       setKeterangan("");
-      fetchRiwayatTerakhir(); // Segarkan daftar riwayat setelah input sukses
+      fetchRiwayatTerakhir(); 
     }
   };
 
-  // FUNGSI BARU: MENGHAPUS SATU BARIS DATA YANG SALAH INPUT
   const handleHapusDataIndividual = async (id: number, tabel: "stock_semen" | "stock_kantong") => {
     const namaKomoditas = tabel === "stock_semen" ? "Semen" : "Kantong";
     
     const result = await Swal.fire({
       title: "Hapus Data Ini?",
-      text: `Apakah Anda yakin ingin menghapus catatan input ${namaKomoditas} ini? Data stok akan otomatis menyesuaikan kembali.`,
+      text: `Apakah Anda yakin ingin menghapus catatan input ${namaKomoditas} ini?`,
       icon: "warning",
       showCancelButton: true,
       confirmButtonColor: "#E74C3C",
@@ -211,7 +220,7 @@ export default function AdminDashboard() {
         confirmButtonColor: "#1A3A5C",
         timer: 1500
       });
-      fetchRiwayatTerakhir(); // Segarkan tampilan tabel riwayat setelah data terhapus
+      fetchRiwayatTerakhir(); 
     }
   };
 
@@ -253,7 +262,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/50 p-6 md:p-12 font-sans selection:bg-[#1A3A5C] selection:text-white"> 
+    <div className="min-h-screen bg-white p-6 md:p-12 font-sans selection:bg-[#1A3A5C] selection:text-white"> 
       
       <header className="max-w-4xl mx-auto mb-10 flex flex-col sm:flex-row sm:items-center gap-4 border-b border-gray-100 pb-6">
         <div className="bg-[#1A3A5C] p-3 rounded-2xl text-white shadow-lg shadow-blue-900/20 inline-block self-start sm:self-auto">
@@ -270,7 +279,7 @@ export default function AdminDashboard() {
           type="button"
           onClick={() => setTipeInput("Semen")}
           className={`flex-1 py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all duration-300 ${
-            tipeInput === "Semen" ? "bg-white text-[#1A3A5C] shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+            tipeInput === "Semen" ? "bg-white text-[#1A3A5C] shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700 hover:bg-transparent"
           }`}
         >
           <Package size={18} /> Input Semen
@@ -279,7 +288,7 @@ export default function AdminDashboard() {
           type="button"
           onClick={() => setTipeInput("Kantong")}
           className={`flex-1 py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all duration-300 ${
-            tipeInput === "Kantong" ? "bg-white text-[#1A3A5C] shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+            tipeInput === "Kantong" ? "bg-white text-[#1A3A5C] shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-700 hover:bg-transparent"
           }`}
         >
           <Layers size={18} /> Input Kantong
@@ -393,7 +402,7 @@ export default function AdminDashboard() {
                     <div className="relative">
                       <input 
                         type="number" min="0" step="1"
-                        className="w-full border border-rose-200 bg-rose-50/50 p-3.5 rounded-xl text-rose-700 font-bold focus:outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-900/5 transition-all" 
+                        className="w-full border border-rose-200 bg-rose-50 p-3.5 rounded-xl text-rose-700 font-bold focus:outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-900/5 transition-all" 
                         value={jumlahPecah} onChange={(e) => setJumlahPecah(e.target.value)} placeholder="0"
                       />
                       <span className="absolute right-4 top-3.5 text-rose-400 font-bold">LBR</span>
@@ -436,7 +445,6 @@ export default function AdminDashboard() {
         </button>
       </form>
 
-      {/* SEKSI BARU: TABEL RIWAYAT INPUT UNTUK KOREKSI INDIVIDUAL */}
       <section className="max-w-4xl mx-auto bg-white border border-slate-100 rounded-[2rem] p-6 md:p-8 shadow-xl shadow-slate-200/30 mb-10">
         <div className="flex items-center gap-2 mb-6">
           <Clock size={20} className="text-[#2E6DA4]" />
@@ -445,7 +453,7 @@ export default function AdminDashboard() {
 
         <div className="overflow-x-auto">
           {tipeInput === "Semen" ? (
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse min-w-[600px]">
               <thead>
                 <tr className="border-b border-slate-100 text-slate-400 text-xs font-black tracking-wider uppercase bg-slate-50">
                   <th className="p-4 rounded-l-xl">Transaksi</th>
@@ -460,10 +468,10 @@ export default function AdminDashboard() {
                   <tr><td colSpan={5} className="p-8 text-center text-slate-400">Belum ada riwayat input semen.</td></tr>
                 ) : (
                   riwayatSemen.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
+                    <tr key={row.id} className="hover:bg-slate-50 transition-colors">
                       <td className="p-4">
                         <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${
-                          row.jenis_transaksi === "Stok Masuk" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                          row.jenis_transaksi === "Stok Masuk" ? "bg-emerald-50 text-emerald-700" : row.jenis_transaksi === "Stok Keluar" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"
                         }`}>{row.jenis_transaksi}</span>
                       </td>
                       <td className="p-4 font-bold text-slate-800">{row.jenis_semen}</td>
@@ -484,7 +492,7 @@ export default function AdminDashboard() {
               </tbody>
             </table>
           ) : (
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse min-w-[600px]">
               <thead>
                 <tr className="border-b border-slate-100 text-slate-400 text-xs font-black tracking-wider uppercase bg-slate-50">
                   <th className="p-4 rounded-l-xl">Transaksi</th>
@@ -499,15 +507,15 @@ export default function AdminDashboard() {
                   <tr><td colSpan={5} className="p-8 text-center text-slate-400">Belum ada riwayat input kantong.</td></tr>
                 ) : (
                   riwayatKantong.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
+                    <tr key={row.id} className="hover:bg-slate-50 transition-colors">
                       <td className="p-4">
                         <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${
-                          row.jenis_transaksi === "Stok Masuk" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                          row.jenis_transaksi === "Stok Masuk" ? "bg-emerald-50 text-emerald-700" : row.jenis_transaksi === "Stok Keluar" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"
                         }`}>{row.jenis_transaksi}</span>
                       </td>
                       <td className="p-4 font-bold text-slate-800">{row.merk} ({row.ukuran_kantong})</td>
                       <td className="p-4">
-                        <span className={`text-xs font-bold ${row.kondisi === "Pecah" ? "text-rose-600" : "text-slate-500"}`}>{row.kondisi}</span>
+                        <span className={`text-xs font-bold ${row.kondisi === "Pecah" ? "text-rose-600" : "text-slate-500"}`}>{row.kondisi || "Normal"}</span>
                       </td>
                       <td className="p-4 font-black text-rose-600">{row.jumlah_lembar.toLocaleString()} Lbr</td>
                       <td className="p-4 text-center">
@@ -528,14 +536,13 @@ export default function AdminDashboard() {
         </div>
       </section>
 
-      {/* Zona Pengaturan Sistem Format Masih Dipertahankan di Paling Bawah */}
       <div className="max-w-2xl mx-auto bg-rose-50 border border-rose-200 p-6 rounded-[1.5rem] shadow-sm">
         <div className="flex items-start gap-4">
           <div className="p-3 bg-rose-100 text-rose-600 rounded-xl shrink-0"><AlertTriangle size={24} /></div>
           <div className="flex-1">
             <h3 className="text-lg font-black text-rose-800 mb-1">Zona Pengaturan Sistem</h3>
             <p className="text-sm text-rose-600/80 mb-4 font-medium leading-relaxed">
-              Tindakan di bawah ini akan menghapus <b>seluruh</b> riwayat transaksi stok Semen dan Kantong dari *database*. Gunakan fitur ini hanya saat membersihkan data uji coba (*testing*).
+              Tindakan di bawah ini akan menghapus <b>seluruh</b> riwayat transaksi stok Semen dan Kantong dari database. Gunakan fitur ini hanya saat membersihkan data uji coba.
             </p>
             <button 
               type="button" onClick={handleResetData} disabled={isResetting}
