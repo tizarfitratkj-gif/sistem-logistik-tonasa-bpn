@@ -9,9 +9,12 @@ import {
   Activity, 
   Package, 
   TrendingUp, 
-  Layers 
+  Layers,
+  Trash2,
+  Clock
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Swal from "sweetalert2";
 
 export const dynamic = 'force-dynamic'; 
 
@@ -19,7 +22,7 @@ export default function ManagerDashboard() {
   const router = useRouter();
   const [stockSemen, setStockSemen] = useState(0);
   
-  // State baru: Mengganti angka tunggal menjadi objek kategori terpisah
+  // State akumulasi stok kantong per kategori
   const [stockKantong, setStockKantong] = useState({
     tonasa50: 0,
     tonasa40: 0,
@@ -29,15 +32,21 @@ export default function ManagerDashboard() {
   
   const [isLoading, setIsLoading] = useState(true);
 
+  // State untuk menyimpan data log riwayat transaksi terbaru
+  const [riwayatSemen, setRiwayatSemen] = useState<any[]>([]);
+  const [riwayatKantong, setRiwayatKantong] = useState<any[]>([]);
+
   // Batas minimum konfigurasi sistem
   const [batasSemen, setBatasSemen] = useState(500);
   const [batasKantong, setBatasKantong] = useState(2000);
 
-  // Fungsi pengambilan data terpusat
+  // Fungsi pengambilan data terpusat (stok total + log transaksi terbaru)
   const fetchAllStockAndSettings = async () => {
-    const [semenRes, kantongRes, batasRes] = await Promise.all([
+    const [semenRes, kantongRes, databaseSemenRows, databaseKantongRows, batasRes] = await Promise.all([
       supabase.from('stock_semen').select('*'),
       supabase.from('stock_kantong').select('*'),
+      supabase.from('stock_semen').select('*').order('id', { ascending: false }).limit(5),
+      supabase.from('stock_kantong').select('*').order('id', { ascending: false }).limit(5),
       supabase.from('batas_minimum').select('*').eq('id', 1).single()
     ]);
     
@@ -56,7 +65,7 @@ export default function ManagerDashboard() {
       setStockSemen(totalSemen);
     }
 
-    // 2. Kalkulasi Stok Kantong Terpisah (Tonasa & Gresik / 40Kg & 50Kg)
+    // 2. Kalkulasi Stok Kantong Terpisah
     if (kantongRes.data) {
       let t50 = 0, t40 = 0, g50 = 0, g40 = 0;
       
@@ -80,13 +89,18 @@ export default function ManagerDashboard() {
         gresik40: g40
       });
     }
+
+    // 3. Simpan data riwayat log ke dalam state
+    if (databaseSemenRows.data) setRiwayatSemen(databaseSemenRows.data);
+    if (databaseKantongRows.data) setRiwayatKantong(databaseKantongRows.data);
+
     setIsLoading(false);
   };
 
   useEffect(() => {
     fetchAllStockAndSettings();
 
-    // Menggunakan strategi pemicu ulang otomatis agar data realtime sinkron 100% saat terjadi perubahan/reset
+    // Listener Realtime: Otomatis memicu fungsi hitung ulang jika ada insert/delete dari manapun
     const channelSemen = supabase
       .channel('realtime-semen')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_semen' }, () => {
@@ -105,14 +119,51 @@ export default function ManagerDashboard() {
     };
   }, []);
 
-  // Logika Status Dinamis
+  // FUNGSI UTAMA: Otoritas Manager untuk menghapus salah input data dari admin
+  const handleHapusDataOlehManager = async (id: number, tabel: "stock_semen" | "stock_kantong") => {
+    const namaKomoditas = tabel === "stock_semen" ? "Semen" : "Kantong";
+    
+    const result = await Swal.fire({
+      title: "Otoritas Manager: Hapus Data?",
+      text: `Apakah Anda yakin ingin membatalkan/menghapus input ${namaKomoditas} ini? Angka akumulasi stok gudang akan langsung dikalkulasi ulang.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#E74C3C",
+      cancelButtonColor: "#64748B",
+      confirmButtonText: "Ya, Hapus Data!",
+      cancelButtonText: "Batal",
+      reverseButtons: true
+    });
+
+    if (!result.isConfirmed) return;
+
+    const { error } = await supabase.from(tabel).delete().eq("id", id);
+
+    if (error) {
+      Swal.fire({
+        title: "Gagal Menghapus",
+        text: error.message,
+        icon: "error",
+        confirmButtonColor: "#E74C3C"
+      });
+    } else {
+      Swal.fire({
+        title: "Data Berhasil Dibatalkan!",
+        text: "Catatan transaksi telah dihapus dan volume stok diperbarui.",
+        icon: "success",
+        confirmButtonColor: "#1A3A5C",
+        timer: 1500
+      });
+      // Efek realtime otomatis akan memicu kalkulasi ulang di sini
+    }
+  };
+
   const statusSemen = stockSemen < batasSemen ? "Kritis" : stockSemen < (batasSemen * 1.5) ? "Waspada" : "Aman";
   
   const getStatusKantong = (jumlah: number) => {
     return jumlah < batasKantong ? "Kritis" : jumlah < (batasKantong * 1.5) ? "Waspada" : "Aman";
   };
 
-  // Komponen Badge Status Modern
   const StatusBadge = ({ status }: { status: string }) => {
     if (status === "Aman") return (
       <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-1 rounded-full text-xs font-bold shadow-sm">
@@ -173,9 +224,9 @@ export default function ManagerDashboard() {
       </header>
 
       {/* Main Stats Area */}
-      <main className="max-w-7xl mx-auto space-y-10">
+      <main className="max-w-7xl mx-auto space-y-12">
         
-        {/* BAGIAN 1: TOTAL STOK SEMEN */}
+        {/* CARDS: STOK SEMEN */}
         <section>
           <h2 className="text-xl font-extrabold text-slate-700 mb-4 tracking-tight flex items-center gap-2">
             <Package size={20} className="text-[#2E6DA4]" /> Komoditas Semen (Curah / Zak)
@@ -199,23 +250,20 @@ export default function ManagerDashboard() {
           </div>
         </section>
 
-        {/* BAGIAN 2: GRID STOK KANTONG YANG DIPISAH BERDASARKAN MERK & BERAT */}
+        {/* CARDS: STOK KANTONG YANG DIPISAH */}
         <section>
           <h2 className="text-xl font-extrabold text-slate-700 mb-4 tracking-tight flex items-center gap-2">
             <Layers size={20} className="text-rose-500" /> Inventori Kantong Berdasarkan Merk & Ukuran
           </h2>
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            
-            {/* KELOMPOK: SEMEN TONASA */}
+            {/* TONASA */}
             <div className="bg-slate-100/60 border border-slate-200 p-6 rounded-[2.5rem] space-y-6">
               <div className="flex items-center gap-2 px-2">
                 <div className="w-3 h-6 bg-[#1A3A5C] rounded-full"></div>
                 <h3 className="text-lg font-black text-slate-800">Merek: Semen Tonasa</h3>
               </div>
-              
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Tonasa 50 Kg */}
                 <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm relative group hover:border-blue-300 transition-colors">
                   <div className="flex justify-between items-start mb-4">
                     <span className="text-xs font-black bg-blue-50 text-blue-800 px-2.5 py-1 rounded-md">Ukuran 50 KG</span>
@@ -224,12 +272,8 @@ export default function ManagerDashboard() {
                   <div className="text-4xl font-black text-slate-800 tracking-tight mb-4">
                     {isLoading ? "---" : stockKantong.tonasa50.toLocaleString()} <span className="text-xs text-slate-400 font-bold">LBR</span>
                   </div>
-                  <div className="text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-2 flex justify-between">
-                    <span>Min: {batasKantong.toLocaleString()} Lbr</span>
-                  </div>
+                  <div className="text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-2">Min: {batasKantong.toLocaleString()} Lbr</div>
                 </div>
-
-                {/* Tonasa 40 Kg */}
                 <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm relative group hover:border-blue-300 transition-colors">
                   <div className="flex justify-between items-start mb-4">
                     <span className="text-xs font-black bg-blue-50 text-blue-800 px-2.5 py-1 rounded-md">Ukuran 40 KG</span>
@@ -238,22 +282,18 @@ export default function ManagerDashboard() {
                   <div className="text-4xl font-black text-slate-800 tracking-tight mb-4">
                     {isLoading ? "---" : stockKantong.tonasa40.toLocaleString()} <span className="text-xs text-slate-400 font-bold">LBR</span>
                   </div>
-                  <div className="text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-2 flex justify-between">
-                    <span>Min: {batasKantong.toLocaleString()} Lbr</span>
-                  </div>
+                  <div className="text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-2">Min: {batasKantong.toLocaleString()} Lbr</div>
                 </div>
               </div>
             </div>
 
-            {/* KELOMPOK: SEMEN GRESIK */}
+            {/* GRESIK */}
             <div className="bg-slate-100/60 border border-slate-200 p-6 rounded-[2.5rem] space-y-6">
               <div className="flex items-center gap-2 px-2">
                 <div className="w-3 h-6 bg-orange-500 rounded-full"></div>
                 <h3 className="text-lg font-black text-slate-800">Merek: Semen Gresik</h3>
               </div>
-              
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Gresik 50 Kg */}
                 <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm relative group hover:border-orange-300 transition-colors">
                   <div className="flex justify-between items-start mb-4">
                     <span className="text-xs font-black bg-orange-50 text-orange-800 px-2.5 py-1 rounded-md">Ukuran 50 KG</span>
@@ -262,12 +302,8 @@ export default function ManagerDashboard() {
                   <div className="text-4xl font-black text-slate-800 tracking-tight mb-4">
                     {isLoading ? "---" : stockKantong.gresik50.toLocaleString()} <span className="text-xs text-slate-400 font-bold">LBR</span>
                   </div>
-                  <div className="text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-2 flex justify-between">
-                    <span>Min: {batasKantong.toLocaleString()} Lbr</span>
-                  </div>
+                  <div className="text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-2">Min: {batasKantong.toLocaleString()} Lbr</div>
                 </div>
-
-                {/* Gresik 40 Kg */}
                 <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm relative group hover:border-orange-300 transition-colors">
                   <div className="flex justify-between items-start mb-4">
                     <span className="text-xs font-black bg-orange-50 text-orange-800 px-2.5 py-1 rounded-md">Ukuran 40 KG</span>
@@ -276,13 +312,110 @@ export default function ManagerDashboard() {
                   <div className="text-4xl font-black text-slate-800 tracking-tight mb-4">
                     {isLoading ? "---" : stockKantong.gresik40.toLocaleString()} <span className="text-xs text-slate-400 font-bold">LBR</span>
                   </div>
-                  <div className="text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-2 flex justify-between">
-                    <span>Min: {batasKantong.toLocaleString()} Lbr</span>
-                  </div>
+                  <div className="text-[11px] font-bold text-slate-400 border-t border-slate-100 pt-2">Min: {batasKantong.toLocaleString()} Lbr</div>
                 </div>
               </div>
             </div>
+          </div>
+        </section>
 
+        {/* SEKSI BARU: LOG MONITOR KENDALI MANAGER (HAPUS DATA SALAH ADMIN) */}
+        <section className="bg-white border border-slate-100 rounded-[2rem] p-6 md:p-8 shadow-xl shadow-slate-200/30">
+          <div className="flex items-center gap-2 mb-6">
+            <Clock size={20} className="text-[#1A3A5C]" />
+            <h2 className="text-xl font-black text-slate-800">Pusat Pembatalan & Koreksi Data Admin (Real-Time)</h2>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+            {/* Tabel Monitoring Semen */}
+            <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/50">
+              <h3 className="text-sm font-black text-[#2E6DA4] mb-3 flex items-center gap-1.5 uppercase tracking-wider">
+                <Package size={16} /> 5 Log Semen Terakhir
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-slate-400 font-bold bg-slate-100/70">
+                      <th className="p-3">Aksi</th>
+                      <th className="p-3">Tipe Semen</th>
+                      <th className="p-3">Volume</th>
+                      <th className="p-3 text-center">Batal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="font-semibold text-slate-700 divide-y divide-slate-100 bg-white">
+                    {riwayatSemen.length === 0 ? (
+                      <tr><td colSpan={4} className="p-4 text-center text-slate-400">Belum ada riwayat masuk.</td></tr>
+                    ) : (
+                      riwayatSemen.map((row) => (
+                        <tr key={row.id} className="hover:bg-slate-50">
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${row.jenis_transaksi === "Stok Masuk" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{row.jenis_transaksi}</span>
+                          </td>
+                          <td className="p-3 font-bold text-slate-800">{row.jenis_semen}</td>
+                          <td className="p-3 font-black text-[#2E6DA4]">{row.jumlah_ton} Ton</td>
+                          <td className="p-3 text-center">
+                            <button 
+                              onClick={() => handleHapusDataOlehManager(row.id, "stock_semen")}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-all"
+                              title="Hapus / Koreksi Transaksi Admin"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Tabel Monitoring Kantong */}
+            <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/50">
+              <h3 className="text-sm font-black text-rose-600 mb-3 flex items-center gap-1.5 uppercase tracking-wider">
+                <Layers size={16} /> 5 Log Kantong Terakhir
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-slate-400 font-bold bg-slate-100/70">
+                      <th className="p-3">Aksi</th>
+                      <th className="p-3">Merk (Size)</th>
+                      <th className="p-3">Kondisi</th>
+                      <th className="p-3">Volume</th>
+                      <th className="p-3 text-center">Batal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="font-semibold text-slate-700 divide-y divide-slate-100 bg-white">
+                    {riwayatKantong.length === 0 ? (
+                      <tr><td colSpan={5} className="p-4 text-center text-slate-400">Belum ada riwayat masuk.</td></tr>
+                    ) : (
+                      riwayatKantong.map((row) => (
+                        <tr key={row.id} className="hover:bg-slate-50">
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${row.jenis_transaksi === "Stok Masuk" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>{row.jenis_transaksi}</span>
+                          </td>
+                          <td className="p-3 font-bold text-slate-800">{row.merk} ({row.ukuran_kantong})</td>
+                          <td className="p-3">
+                            <span className={`font-bold ${row.kondisi === "Pecah" ? "text-rose-600" : "text-slate-500"}`}>{row.kondisi || "Normal"}</span>
+                          </td>
+                          <td className="p-3 font-black text-rose-600">{row.jumlah_lembar.toLocaleString()} Lbr</td>
+                          <td className="p-3 text-center">
+                            <button 
+                              onClick={() => handleHapusDataOlehManager(row.id, "stock_kantong")}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-all"
+                              title="Hapus / Koreksi Transaksi Admin"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 
