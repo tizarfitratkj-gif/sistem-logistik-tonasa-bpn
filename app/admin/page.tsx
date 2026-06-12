@@ -27,7 +27,7 @@ export default function AdminDashboard() {
   const [riwayatSemen, setRiwayatSemen] = useState<any[]>([]);
   const [riwayatKantong, setRiwayatKantong] = useState<any[]>([]);
 
-  // Fungsi pengambilan data riwayat yang dipisah secara independen
+  // Fungsi pengambilan data riwayat menggunakan pengurutan ID
   const fetchRiwayatTerakhir = async () => {
     // 1. Ambil data Semen
     const { data: semenData, error: semenError } = await supabase
@@ -36,9 +36,7 @@ export default function AdminDashboard() {
       .order("id", { ascending: false })
       .limit(5);
 
-    if (semenError) {
-      console.error("Error memuat riwayat semen:", semenError.message);
-    } else if (semenData) {
+    if (semenData && !semenError) {
       setRiwayatSemen(semenData);
     }
 
@@ -49,29 +47,44 @@ export default function AdminDashboard() {
       .order("id", { ascending: false })
       .limit(5);
 
-    if (kantongError) {
-      console.error("Error memuat riwayat kantong:", kantongError.message);
-    } else if (kantongData) {
+    if (kantongData && !kantongError) {
       setRiwayatKantong(kantongData);
     }
   };
 
   useEffect(() => {
     fetchRiwayatTerakhir();
+
+    const channelSemen = supabase
+      .channel("admin-realtime-semen")
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_semen" }, () => {
+        fetchRiwayatTerakhir();
+      })
+      .subscribe();
+
+    const channelKantong = supabase
+      .channel("admin-realtime-kantong")
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_kantong" }, () => {
+        fetchRiwayatTerakhir();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channelSemen);
+      supabase.removeChannel(channelKantong);
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(false);
+    setIsLoading(true);
 
     if (tipeInput === "Semen") {
-      setIsLoading(true);
       let finalJenisSemen = jenisSemen;
       if (jenisTransaksi === "Stok Keluar") {
         finalJenisSemen = `${jenisSemen} (${kemasanSemen})`;
       }
 
-      // Konversi koma ke titik untuk membaca desimal
       const sanitizedJumlah = jumlah.replace(",", ".");
       const jumlahTon = parseFloat(sanitizedJumlah);
 
@@ -109,10 +122,9 @@ export default function AdminDashboard() {
             icon: "warning",
             confirmButtonColor: "#1A3A5C"
           });
+          setIsLoading(false);
           return;
         }
-
-        setIsLoading(true);
 
         if (valNormal > 0) {
           records.push({
@@ -144,10 +156,10 @@ export default function AdminDashboard() {
             icon: "warning",
             confirmButtonColor: "#1A3A5C"
           });
+          setIsLoading(false);
           return;
         }
 
-        setIsLoading(true);
         records.push({
           jenis_transaksi: jenisTransaksi,
           merk: merkKantong,
@@ -182,7 +194,7 @@ export default function AdminDashboard() {
       setJumlah(""); 
       setJumlahPecah(""); 
       setKeterangan("");
-      fetchRiwayatTerakhir(); 
+      fetchRiwayatTerakhir(); // <--- DIPAKSA REFRESH MANUAL DI SINI (PASTI INSTAN)
     }
   };
 
@@ -220,7 +232,7 @@ export default function AdminDashboard() {
         confirmButtonColor: "#1A3A5C",
         timer: 1500
       });
-      fetchRiwayatTerakhir(); 
+      fetchRiwayatTerakhir(); // <--- DIPAKSA REFRESH MANUAL DI SINI SETELAH HAPUS
     }
   };
 
@@ -402,7 +414,7 @@ export default function AdminDashboard() {
                     <div className="relative">
                       <input 
                         type="number" min="0" step="1"
-                        className="w-full border border-rose-200 bg-rose-50 p-3.5 rounded-xl text-rose-700 font-bold focus:outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-900/5 transition-all" 
+                        className="w-full border border-rose-200 bg-rose-50/50 p-3.5 rounded-xl text-rose-700 font-bold focus:outline-none focus:border-rose-400 focus:ring-4 focus:ring-rose-900/5 transition-all" 
                         value={jumlahPecah} onChange={(e) => setJumlahPecah(e.target.value)} placeholder="0"
                       />
                       <span className="absolute right-4 top-3.5 text-rose-400 font-bold">LBR</span>

@@ -22,7 +22,6 @@ export default function ManagerDashboard() {
   const router = useRouter();
   const [stockSemen, setStockSemen] = useState(0);
   
-  // State akumulasi stok kantong per kategori
   const [stockKantong, setStockKantong] = useState({
     tonasa50: 0,
     tonasa40: 0,
@@ -32,15 +31,12 @@ export default function ManagerDashboard() {
   
   const [isLoading, setIsLoading] = useState(true);
 
-  // State untuk menyimpan data log riwayat transaksi terbaru
   const [riwayatSemen, setRiwayatSemen] = useState<any[]>([]);
   const [riwayatKantong, setRiwayatKantong] = useState<any[]>([]);
 
-  // Batas minimum konfigurasi sistem
   const [batasSemen, setBatasSemen] = useState(500);
   const [batasKantong, setBatasKantong] = useState(2000);
 
-  // Fungsi pengambilan data terpusat (stok total + log transaksi terbaru)
   const fetchAllStockAndSettings = async () => {
     const [semenRes, kantongRes, databaseSemenRows, databaseKantongRows, batasRes] = await Promise.all([
       supabase.from('stock_semen').select('*'),
@@ -55,7 +51,6 @@ export default function ManagerDashboard() {
       setBatasKantong(parseInt(batasRes.data.min_kantong_lembar));
     }
 
-    // 1. Kalkulasi Stok Semen
     if (semenRes.data) {
       let totalSemen = 0;
       semenRes.data.forEach((row) => {
@@ -65,7 +60,6 @@ export default function ManagerDashboard() {
       setStockSemen(totalSemen);
     }
 
-    // 2. Kalkulasi Stok Kantong Terpisah
     if (kantongRes.data) {
       let t50 = 0, t40 = 0, g50 = 0, g40 = 0;
       
@@ -90,7 +84,6 @@ export default function ManagerDashboard() {
       });
     }
 
-    // 3. Simpan data riwayat log ke dalam state
     if (databaseSemenRows.data) setRiwayatSemen(databaseSemenRows.data);
     if (databaseKantongRows.data) setRiwayatKantong(databaseKantongRows.data);
 
@@ -100,7 +93,6 @@ export default function ManagerDashboard() {
   useEffect(() => {
     fetchAllStockAndSettings();
 
-    // Listener Realtime: Otomatis memicu fungsi hitung ulang jika ada insert/delete dari manapun
     const channelSemen = supabase
       .channel('realtime-semen')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_semen' }, () => {
@@ -119,7 +111,6 @@ export default function ManagerDashboard() {
     };
   }, []);
 
-  // FUNGSI UTAMA: Otoritas Manager untuk menghapus salah input data dari admin
   const handleHapusDataOlehManager = async (id: number, tabel: "stock_semen" | "stock_kantong") => {
     const namaKomoditas = tabel === "stock_semen" ? "Semen" : "Kantong";
     
@@ -149,12 +140,12 @@ export default function ManagerDashboard() {
     } else {
       Swal.fire({
         title: "Data Berhasil Dibatalkan!",
-        text: "Catatan transaksi telah dihapus dan volume stok diperbarui.",
+        text: "Catatan transaksi telah dihapus.",
         icon: "success",
         confirmButtonColor: "#1A3A5C",
         timer: 1500
       });
-      // Efek realtime otomatis akan memicu kalkulasi ulang di sini
+      fetchAllStockAndSettings(); // <--- DIPAKSA REFRESH HITUNGAN DAN LOG SECARA INSTAN DI SINI
     }
   };
 
@@ -319,7 +310,7 @@ export default function ManagerDashboard() {
           </div>
         </section>
 
-        {/* SEKSI BARU: LOG MONITOR KENDALI MANAGER (HAPUS DATA SALAH ADMIN) */}
+        {/* LOG MONITOR KENDALI MANAGER */}
         <section className="bg-white border border-slate-100 rounded-[2rem] p-6 md:p-8 shadow-xl shadow-slate-200/30">
           <div className="flex items-center gap-2 mb-6">
             <Clock size={20} className="text-[#1A3A5C]" />
@@ -327,7 +318,7 @@ export default function ManagerDashboard() {
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-            {/* Tabel Monitoring Semen */}
+            {/* Tabel Semen */}
             <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/50">
               <h3 className="text-sm font-black text-[#2E6DA4] mb-3 flex items-center gap-1.5 uppercase tracking-wider">
                 <Package size={16} /> 5 Log Semen Terakhir
@@ -370,7 +361,7 @@ export default function ManagerDashboard() {
               </div>
             </div>
 
-            {/* Tabel Monitoring Kantong */}
+            {/* Tabel Kantong */}
             <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/50">
               <h3 className="text-sm font-black text-rose-600 mb-3 flex items-center gap-1.5 uppercase tracking-wider">
                 <Layers size={16} /> 5 Log Kantong Terakhir
@@ -421,7 +412,6 @@ export default function ManagerDashboard() {
 
       </main>
 
-      {/* Footer Info */}
       <footer className="max-w-7xl mx-auto mt-16 text-center text-slate-400 text-sm font-medium">
         PP. Balikpapan Logistik Monitoring System © 2026
       </footer>
